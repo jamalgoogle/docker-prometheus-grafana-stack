@@ -1,316 +1,236 @@
-markdown
-# Prometheus Monitoring Stack
+مشروع مراقبة باستخدام Prometheus - دليل شامل
+📖 نظرة عامة
+هذا المشروع يوضح كيفية إعداد نظام مراقبة متكامل باستخدام Prometheus لمراقبة تطبيق ويب وموارد النظام. يتضمن النظام Prometheus لجمع المقاييس، وGrafana لتصور البيانات، وNode Exporter لمراقبة موارد النظام، وتطبيق ويب مخصص يحتوي على مقاييس مدمجة.
 
-A comprehensive monitoring solution using Prometheus, Grafana, Node Exporter, and a custom Flask web application with built-in metrics.
-
-## 📋 Table of Contents
-
-- [Architecture Overview](#-architecture-overview)
-- [Project Structure](#-project-structure)
-- [Prerequisites](#-prerequisites)
-- [Installation & Setup](#-installation--setup)
-- [Configuration Files](#-configuration-files)
-- [Running the Stack](#-running-the-stack)
-- [Accessing Services](#-accessing-services)
-- [Useful PromQL Queries](#-useful-promql-queries)
-- [Troubleshooting](#-troubleshooting)
-- [Next Steps](#-next-steps)
-
-## 🏗️ Architecture Overview
-
-This project demonstrates a complete monitoring stack with the following components:
-
-- **Prometheus**: Time-series database for metrics collection and storage
-- **Grafana**: Visualization platform for creating dashboards
-- **Node Exporter**: System resource metrics collector
-- **Custom Flask App**: Sample web application with built-in Prometheus metrics
-- **Alertmanager**: Handles alerts from Prometheus and routes them
-
-## 📁 Project Structure
-prometheus-monitoring/
-├── docker-compose.yml # Docker container definitions
-├── prometheus.yml # Main Prometheus configuration
-├── alert.rules.yml # Alerting rules for Prometheus
-├── alertmanager.yml # Alertmanager configuration
-├── app.py # Flask web application with metrics
-├── requirements.txt # Python dependencies
-└── README.md # This documentation
-
+🏗️ بنية المشروع
 text
+prometheus-example/
+├── docker-compose.yml      # ملف تكوين Docker لتشغيل جميع الخدمات
+├── prometheus.yml          # تكوين خادم Prometheus الرئيسي
+├── alert.rules.yml         # قواعد التنبيهات في Prometheus
+├── alertmanager.yml        # تكوين إدارة التنبيهات
+├── app.py                  # تطبيق الويب مع المقاييس المدمجة
+├── requirements.txt        # متطلبات بايثون للتطبيق
+└── README.md               # هذا الملف
+📁 شرح الملفات ومكوناتها
+1. docker-compose.yml
+هذا الملف يحتوي على تعريف جميع الخدمات التي سيتم تشغيلها في حاويات Docker.
 
-## ⚙️ Prerequisites
+الخدمات المشمولة:
 
-Before starting, ensure you have installed:
+prometheus: خادم Prometheus الرئيسي لجمع وتخزين المقاييس
 
-- **Docker** and **Docker Compose**
-- **Python 3.7+** (for the Flask application)
-- **pip** (Python package manager)
+alertmanager: نظام إدارة وتوجيه التنبيهات
 
-## 📦 Installation & Setup
+node-exporter: لجمع مقاييس موارد النظام (CPU، ذاكرة، قرص)
 
-1. **Clone or create the project directory**:
-   ```bash
-   mkdir prometheus-monitoring
-   cd prometheus-monitoring
-Create the configuration files as described in the sections below
+grafana: منصة لتصور البيانات وإنشاء لوحات التحكم
 
-Install Python dependencies for the Flask app:
+كيفية التشغيل:
 
 bash
-pip install -r requirements.txt
-🔧 Configuration Files
-1. Docker Compose (docker-compose.yml)
-Defines and orchestrates all the monitoring services:
-
-yaml
-version: '3.8'
-services:
-  prometheus:
-    image: prom/prometheus:latest
-    ports: ["9090:9090"]
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml
-    # ... other configuration
-
-  alertmanager:
-    image: prom/alertmanager:latest
-    ports: ["9093:9093"]
-    volumes:
-      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
-
-  node-exporter:
-    image: prom/node-exporter:latest
-    ports: ["9100:9100"]
-
-  grafana:
-    image: grafana/grafana:latest
-    ports: ["3000:3000"]
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-
-volumes:
-  prometheus_data:
-  grafana_data:
-  alertmanager_data:
-2. Prometheus Configuration (prometheus.yml)
-Main configuration file defining scrape targets and settings:
-
-yaml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
-
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['node-exporter:9100']
-
-  - job_name: 'web-application'
-    static_configs:
-      - targets: ['host.docker.internal:8000']
-        labels:
-          environment: 'production'
-
-rule_files:
-  - 'alert.rules.yml'
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ['alertmanager:9093']
-3. Alert Rules (alert.rules.yml)
-Defines conditions for triggering alerts:
-
-yaml
-groups:
-- name: example
-  rules:
-  - alert: HighRequestLatency
-    expr: http_request_latency_seconds{endpoint="/"} > 0.5
-    for: 1m
-    labels:
-      severity: warning
-    annotations:
-      summary: "High request latency on homepage"
-      description: "Request latency exceeded 0.5 seconds"
-
-  - alert: ServiceDown
-    expr: up{job="web-application"} == 0
-    for: 1m
-    labels:
-      severity: critical
-    annotations:
-      summary: "Service is down"
-      description: "Web application is not responding"
-4. Alertmanager Configuration (alertmanager.yml)
-Configures how alerts are handled and routed:
-
-yaml
-route:
-  group_by: ['alertname']
-  group_wait: 10s
-  group_interval: 10s
-  repeat_interval: 1h
-  receiver: 'web.hook'
-receivers:
-  - name: 'web.hook'
-    webhook_configs:
-      - url: 'http://127.0.0.1:5001/'
-5. Flask Application (app.py)
-Sample web application with integrated Prometheus metrics:
-
-python
-from flask import Flask
-from prometheus_client import Counter, Gauge, generate_latest
-import time
-import random
-
-app = Flask(__name__)
-
-# Metrics definitions
-REQUEST_COUNT = Counter('http_requests_total', 'Total HTTP Requests', 
-                       ['method', 'endpoint', 'status'])
-REQUEST_LATENCY = Gauge('http_request_latency_seconds', 'HTTP Request Latency',
-                       ['method', 'endpoint'])
-ACTIVE_USERS = Gauge('active_users', 'Number of active users')
-
-@app.route('/')
-def home():
-    start_time = time.time()
-    time.sleep(random.uniform(0.1, 1.0))
-    latency = time.time() - start_time
-    
-    REQUEST_COUNT.labels(method='GET', endpoint='/', status='200').inc()
-    REQUEST_LATENCY.labels(method='GET', endpoint='/').set(latency)
-    
-    return f'Hello! Load time: {latency:.2f} seconds'
-
-@app.route('/metrics')
-def metrics():
-    return generate_latest()
-
-# ... other routes and functionality
-6. Requirements (requirements.txt)
-Python dependencies for the Flask application:
-
-text
-Flask==2.3.3
-prometheus_client==0.18.0
-🚀 Running the Stack
-Start the Docker containers:
-
-bash
+# تشغيل الخدمات في الخلفية
 docker-compose up -d
-Run the Flask application:
 
+# إيقاف الخدمات
+docker-compose down
+
+# عرض سجلات الخدمات
+docker-compose logs [service-name]
+2. prometheus.yml
+ملف التكوين الرئيسي لخادم Prometheus يحدد كيفية جمع المقاييس.
+
+الأقسام الرئيسية:
+
+global: الإعدادات العامة (فترات جمع المقاييس)
+
+scrape_configs: قائمة الأهداف التي سيجمع منها Prometheus المقاييس
+
+rule_files: ملفات قواعد التنبيهات
+
+alerting: تكوين إدارة التنبيهات
+
+وظيفة كل job:
+
+prometheus: يراقب خادم Prometheus نفسه
+
+node-exporter: يجمع مقاييس موارد النظام
+
+web-application: يجمع مقاييس تطبيق الويب
+
+3. alert.rules.yml
+يحتوي على قواعد التنبيهات التي يتحقق منها Prometheus باستمرار.
+
+القواعد المضمنة:
+
+HighRequestLatency: تنبيه عند تجاوز زمن الاستجابة 0.5 ثانية
+
+ServiceDown: تنبيه عندما يتوقف تطبيق الويب عن الاستجابة
+
+هيكل القاعدة:
+
+alert: اسم التنبيه
+
+expr: تعبير PromQL للتحقق من الشرط
+
+for: المدة التي يجب أن يستمر فيها الشرط قبل تشغيل التنبيه
+
+labels: تسميات إضافية للتنبيه
+
+annotations: معلومات وصفية للتنبيه
+
+4. alertmanager.yml
+يتحكم في كيفية معالجة وتوزيع التنبيهات التي يولدها Prometheus.
+
+الميزات الرئيسية:
+
+التجميع: تجميع التنبيهات المتشابهة لتجنب الإشعارات المفرطة
+
+الكبح: منع التنبيهات الزائدة عن الحاجة
+
+التوجيه: إرسال التنبيهات إلى قنوات مختلفة (بريد، Slack، etc.)
+
+المستلمون: تعريف كيفية استلام التنبيهات
+
+5. app.py
+تطبيق ويب مبني باستخدام Flask يحتوي على مقاييس مدمجة لـ Prometheus.
+
+المقاييس المضمنة:
+
+http_requests_total: عدد الطلبات HTTP الإجمالي
+
+http_request_latency_seconds: زمن استجابة الطلبات
+
+active_users: عدد المستخدمين النشطين
+
+ال endpoints:
+
+/: الصفحة الرئيسية
+
+/metrics: endpoint للمقاييس (يجمعه Prometheus)
+
+/user/login: محاكاة تسجيل دخول пользователя
+
+/user/logout: محاكاة تسجيل خروج пользователя
+
+6. requirements.txt
+قائمة الحزم Python المطلوبة لتشغيل تطبيق الويب.
+
+🚀 خطوات التشغيل الكاملة
+1. تثبيت المتطلبات الأساسية
+تأكد من تثبيت:
+
+Docker و Docker Compose
+
+Python 3.x
+
+pip (مدير حزم Python)
+
+2. تشغيل حاويات Docker
 bash
+# انتقل إلى مجلد المشروع
+cd prometheus-example
+
+# شغّل جميع الخدمات
+docker-compose up -d
+3. تشغيل تطبيق الويب
+bash
+# تثبيت dependencies
+pip install -r requirements.txt
+
+# تشغيل التطبيق
 python app.py
-Verify all services are running:
-
-bash
-docker-compose ps
-🌐 Accessing Services
-Prometheus UI: http://localhost:9090
+4. الوصول إلى الخدمات
+Prometheus: http://localhost:9090
 
 Grafana: http://localhost:3000 (admin/admin)
 
+تطبيق الويب: http://localhost:8000
+
 Node Exporter: http://localhost:9100
 
-Flask Application: http://localhost:8000
+5. إعداد Grafana
+سجّل الدخول إلى Grafana (admin/admin)
 
-Alertmanager: http://localhost:9093
+أضف مصدر بيانات:
 
-🔍 Useful PromQL Queries
+انقر على "Add your first data source"
+
+اختر "Prometheus"
+
+في URL أدخل: http://prometheus:9090
+
+انقر على "Save & Test"
+
+أنشئ لوحة تحكم جديدة وأضف panels باستخدام استعلامات PromQL
+
+🔍 استعلامات PromQL مفيدة
 promql
-# Request rate per minute
+# معدل الطلبات في الدقيقة
 rate(http_requests_total[1m])
 
-# Current request latency
+# زمن الاستجابة الحالي
 http_request_latency_seconds
 
-# Active users count
+# عدد المستخدمين النشطين
 active_users
 
-# Memory usage
+# استخدام الذاكرة
 node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
 
-# CPU usage
+# استخدام CPU
 rate(node_cpu_seconds_total[1m])
 
-# Service health status
+# صحة الخدمات
 up
-🐛 Troubleshooting
-Common Issues:
-Targets not showing in Prometheus:
+🧪 اختبار النظام
+اختبر تطبيق الويب بزيارة:
+
+http://localhost:8000
+
+http://localhost:8000/user/login
+
+http://localhost:8000/user/logout
+
+أنشئ حركة مرور باستخدام curl:
 
 bash
-docker-compose logs prometheus
-curl http://localhost:8000/metrics
-Grafana cannot connect to Prometheus:
+while true; do curl http://localhost:8000; sleep 2; done
+راقب المقاييس في:
 
-Verify URL is http://prometheus:9090 in Grafana data source settings
+Prometheus: http://localhost:9090/graph
 
-Metrics not appearing:
+Grafana: http://localhost:3000
 
-Check Flask app is running: curl http://localhost:8000
+🛠 استكشاف الأخطاء وإصلاحها
+لم تظهر Targets في Prometheus:
 
-Verify metrics endpoint: curl http://localhost:8000/metrics
+تحقق من أن جميع الحاويات تعمل: docker-compose ps
 
-Containers not starting:
+تحقق من أن تطبيق الويب يعمل: curl http://localhost:8000/metrics
 
-bash
-docker-compose down
-docker-compose up -d
-🚀 Next Steps
-Enhancements to consider:
-Add more metrics to the Flask application
+Grafana لا يمكنها الاتصال بـ Prometheus:
 
-Configure additional notification channels in Alertmanager (email, Slack)
+تأكد من أن URL هو http://prometheus:9090 وليس http://localhost:9090
 
-Create advanced Grafana dashboards
+لم تظهر المقاييس:
 
-Add database monitoring (MySQL, PostgreSQL, or MongoDB exporter)
+تحقق من أن تطبيق الويب يولد المقاييس: curl http://localhost:8000/metrics
 
-Implement service discovery for dynamic environments
+📈 خطوات التطوير المستقبلية
+إضافة المزيد من المقاييس للتطبيق
 
-Set up TLS/SSL for secure communications
+تكوين قنوات إشعارات إضافية في Alertmanager (البريد الإلكتروني، Slack)
 
-Configure persistent storage for metrics data
+إنشاء لوحات تحكم Grafana أكثر تقدمًا
 
-Learning Resources:
-Prometheus Official Documentation
+إضافة خدمة قاعدة بيانات ومراقبتها
 
-Grafana Documentation
+تكوين اكتشاف تلقائي للخدمات (Service Discovery)
+
+📚 موارد إضافية
+توثيق Prometheus الرسمي
+
+توثيق Grafana
 
 Prometheus Client for Python
-
-📊 Example Dashboards
-Once Grafana is running, you can import these dashboard IDs:
-
-Node Exporter Full: 1860
-
-Prometheus 2.0 Overview: 3662
-
-Web Application Monitoring: Create custom dashboard using the metrics from the Flask app
-
-🤝 Contributing
-To extend this project:
-
-Fork the repository
-
-Create a feature branch
-
-Make your changes
-
-Test thoroughly
-
-Submit a pull request
-
-📄 License
-This project is provided as an educational example for learning Prometheus monitoring.
-
